@@ -4,8 +4,11 @@ import * as util from "./util.js";
 const { env } = process;
 
 const addBookHandler = (request, h) => {
-  const { name, pageCount, readPage, ...other } = request.payload;
-  const data = util.getAllData();
+  // eslint-disable-next-line max-len
+  const {
+    name, pageCount, readPage, year = "_", author = "", summary = "", publisher = "", reading = false,
+  } = request.payload;
+  const data = util.getAllData(env.db);
 
   if (!name) {
     const response = h
@@ -30,8 +33,14 @@ const addBookHandler = (request, h) => {
   const newBook = {
     id: NANO.nanoid(14),
     name,
-    ...other,
-    finishd: false,
+    year,
+    author,
+    summary,
+    publisher,
+    pageCount,
+    readPage,
+    finished: readPage === pageCount,
+    reading,
     insertedAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   };
@@ -39,8 +48,8 @@ const addBookHandler = (request, h) => {
   if (data.filter((e) => e.id === newBook.id).length > 0) {
     const response = h
       .response({
-        status: "fail",
-        message: "Gagal menambahkan buku, kesalahan server",
+        status: "error",
+        message: "Buku gagal ditambahkan, kesalahan server",
       })
       .code(500);
 
@@ -51,7 +60,7 @@ const addBookHandler = (request, h) => {
 
   const response = h
     .response({
-      status: "succes",
+      status: "success",
       message: "Buku berhasil ditambahkan",
       data: { bookId: newBook.id },
     })
@@ -60,11 +69,30 @@ const addBookHandler = (request, h) => {
 };
 
 const getBooksHandler = (request, h) => {
-  const data = util.getAllData(env.db);
+  let data = util.getAllData(env.db);
+  const { name, reading, finished } = request.query;
+  if (name) {
+    data = data.filter((e) => e.name.toLowerCase().includes(name.toLowerCase()));
+  }
+  if (reading) {
+    const rd = Number(reading) === 1;
+    data = data.filter((e) => e.reading === rd);
+  }
+  if (finished) {
+    const fs = Number(finished) === 1;
+    data = data.filter((e) => e.finished === fs);
+  }
+
+  data = data.map((e) => ({
+    id: e.id,
+    name: e.name,
+    publisher: e.publisher,
+  }));
+
   const response = h
     .response({
-      status: "succes",
-      data: { notes: data },
+      status: "success",
+      data: { books: data },
     })
     .code(200);
   return response;
@@ -72,11 +100,11 @@ const getBooksHandler = (request, h) => {
 
 const getBookDetailHandler = (request, h) => {
   const { bookId } = request.params;
-  const data = util.getAllData(env.db).filter((e) => e.id === bookId);
-  if (data.length > 0) {
+  const data = util.getAllData(env.db).find((e) => e.id === bookId);
+  if (data) {
     const response = h
       .response({
-        status: "succes",
+        status: "success",
         data: { book: data },
       })
       .code(200);
@@ -84,16 +112,29 @@ const getBookDetailHandler = (request, h) => {
   }
   const response = h.response({
     status: "fail",
-    messagee: "Buku tidak ditemukan",
-  });
+    message: "Buku tidak ditemukan",
+  }).code(404);
   return response;
 };
 
 const updateBookHandler = (request, h) => {
   const { bookId } = request.params;
-  const { name, readPage, pageCount, ...other } = request.payload;
+  // eslint-disable-next-line max-len
   const data = util.getAllData(env.db);
   const book = data.find((e) => e.id === bookId);
+  if (!book) {
+    const response = h
+      .response({
+        status: "fail",
+        message: "Gagal memperbarui buku. Id tidak ditemukan",
+      })
+      .code(404);
+    return response;
+  }
+  // eslint-disable-next-line max-len
+  const {
+    name, readPage = 0, pageCount = 0, year, author, summary, publisher, reading,
+  } = request.payload;
 
   if (!name) {
     const response = h
@@ -115,28 +156,25 @@ const updateBookHandler = (request, h) => {
 
     return response;
   }
-  if (!book) {
-    const response = h
-      .response({
-        status: "fail",
-        message: "Gagal memperbarui buku. Id tidak ditemukan",
-      })
-      .code(404);
-    return response;
-  }
   const update = {
     id: bookId,
     name,
-    readPage,
+    year,
+    author,
+    summary,
+    publisher,
     pageCount,
-    updatedAt: new Date().toISOString(),
+    readPage,
+    finished: readPage === pageCount,
+    reading,
     insertedAt: book.insertedAt,
-    ...other,
+    updatedAt: new Date().toISOString(),
   };
   util.setData(env.db, bookId, update);
   const response = h.response({
-    status: "succes",
+    status: "success",
     message: "Buku berhasil diperbarui",
+    book: update,
   });
   return response;
 };
@@ -145,17 +183,21 @@ const deleteBookHandler = (request, h) => {
   const { bookId } = request.params;
   const book = util.getAllData(env.db).find((e) => e.id === bookId);
   if (book) {
-    const response = h.response({
-      status: "succes",
-      message: "Buku berhasil dihapus",
-    }).code(200);
+    const response = h
+      .response({
+        status: "success",
+        message: "Buku berhasil dihapus",
+      })
+      .code(200);
     util.deleteData(env.db, bookId);
     return response;
   }
-  const response = h.response({
-    status: "fail",
-    message: "Buku gagal dihapus. Id tidak ditemukan",
-  }).code(400);
+  const response = h
+    .response({
+      status: "fail",
+      message: "Buku gagal dihapus. Id tidak ditemukan",
+    })
+    .code(404);
   return response;
 };
 
